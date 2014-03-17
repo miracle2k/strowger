@@ -10,9 +10,9 @@ type Router struct {
 	s Server
 }
 
-func (r *Router) AddFrontend(config *strowger.Config, res *struct{}) error {
+func (r *Router) AddRoute(config *strowger.Config, res *struct{}) error {
 	switch config.Type {
-	case strowger.FrontendHTTP:
+	case strowger.RouteHTTP:
 		if err := r.s.AddHTTPDomain(config.HTTPDomain, config.Service, config.HTTPSCert, config.HTTPSKey); err != nil {
 			return err
 		}

@@ -1,15 +1,15 @@
 package strowger
 
-type FrontendType uint8
+type RouteType uint8
 
 const (
-	FrontendHTTP FrontendType = iota
-	FrontendTCP
+	RouteHTTP RouteType = iota
+	RouteTCP
 )
 
 type Config struct {
 	Service string
-	Type    FrontendType
+	Type    RouteType
 
 	// HTTP
 	HTTPDomain string
