@@ -22,8 +22,31 @@ func (r *Router) AddRoute(config *strowger.Config, res *struct{}) error {
 	return nil
 }
 
-func (r *Router) RemoveFrontend(config *strowger.Config, res *struct{}) error {
+func (r *Router) RemoveRoute(config *strowger.Config, res *struct{}) error {
+	switch config.Type {
+	case strowger.RouteHTTP:
+		if err := r.s.RemoveHTTPDomain(config.HTTPDomain); err != nil {
+			return err
+		}
+	default:
+		return errors.New("unsupported frontend type")
+	}
 	return nil
 }
 
-// TODO: change tls certificate
+func (r *Router) UpdateRoute(config *strowger.Config, res *struct{}) error {
+	switch config.Type {
+	case strowger.RouteHTTP:
+		if err := r.s.RemoveHTTPDomain(config.HTTPDomain); err != nil {
+			return err
+		}
+	default:
+		return errors.New("unsupported frontend type")
+	}
+	return nil
+}
+
+func (r *Router) ListRoutes(config *strowger.Config, res *struct{}) error {
+	// List all? Only a specific type?
+	return nil
+}
