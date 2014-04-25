@@ -82,6 +82,16 @@ error:
 	return err
 }
 
+func (s *HTTPFrontend) UpdateHTTPDomain(domain string, service string) error {
+	if _, err := s.etcd.Delete(s.etcdPrefix+domain, true); err != nil {
+		if e, ok := err.(*etcd.EtcdError); ok && e.ErrorCode == 100 {
+			return ErrNoSuchDomain
+		}
+		return err
+	}
+	return nil
+}
+
 func (s *HTTPFrontend) RemoveHTTPDomain(domain string) error {
 	if _, err := s.etcd.Delete(s.etcdPrefix+domain, true); err != nil {
 		if e, ok := err.(*etcd.EtcdError); ok && e.ErrorCode == 100 {
