@@ -20,6 +20,7 @@ import (
 	"github.com/flynn/go-discoverd"
 	"github.com/flynn/strowger/types"
 	"github.com/inconshreveable/go-vhost"
+	"github.com/miracle2k/go-http-auth"
 	log "gopkg.in/inconshreveable/log15.v2"
 )
 
@@ -155,6 +156,26 @@ func (h *httpSyncHandler) Set(data *strowger.Route) error {
 		TLSKey:  route.TLSKey,
 	}
 
+	authType := strings.ToLower(route.AuthType)
+	authDB := route.HTTPAuth
+	httpRealm := route.HTTPRealm
+	if httpRealm == "" {
+		httpRealm = "Protected"
+	}
+	var authenticator Authenticator
+	httpAuthSecrets := func() auth.SecretProvider {
+		secrets := func(user, realm string) string {
+			return authDB[user]
+		}
+		return secrets
+	}
+	if authType == "digest" {
+		authenticator = auth.NewDigestAuthenticator(httpRealm, httpAuthSecrets())
+	} else if authType == "basic" {
+		authenticator = auth.NewBasicAuthenticator(httpRealm, httpAuthSecrets())
+	}
+	r.auth = authenticator
+
 	if r.TLSCert != "" && r.TLSKey != "" {
 		kp, err := tls.X509KeyPair([]byte(r.TLSCert), []byte(r.TLSKey))
 		if err != nil {
@@ -274,13 +295,52 @@ func fail(sc *httputil.ServerConn, req *http.Request, code int, msg string) {
 	sc.Write(req, resp)
 }
 
+// http.ResponseWriter and httputil.ServerConn are essentially incompatible
+// approaches to generating responses, this implements the ResponseWriter
+// interface to write to write to ServerConn.
+type ResponseMaker struct {
+	resp *http.Response
+	req  *http.Request
+	sc   *httputil.ServerConn
+}
+
+func (rm *ResponseMaker) Header() http.Header {
+	return rm.resp.Header
+}
+
+func (rm *ResponseMaker) WriteHeader(status int) {
+	rm.resp.StatusCode = status
+}
+
+func (rm *ResponseMaker) Write(data []byte) (int, error) {
+	if rm.resp.StatusCode == 0 {
+		rm.resp.StatusCode = http.StatusOK
+	}
+	if rm.resp.Body == nil {
+		rm.resp.Body = ioutil.NopCloser(bytes.NewBufferString(string(data)))
+	}
+	rm.resp.ContentLength = int64(len(data))
+	rm.sc.Write(rm.req, rm.resp)
+	return 0, nil
+}
+
+func NewResponseMaker(req *http.Request, sc *httputil.ServerConn) *ResponseMaker {
+	rm := &ResponseMaker{
+		req: req,
+		sc:  sc,
+	}
+	rm.resp = &http.Response{
+		ProtoMajor: 1,
+		ProtoMinor: 0,
+		Request:    req,
+		Header:     http.Header{},
+	}
+	return rm
+}
+
 // TODO: create a new logger for the request, pass around..
 func (s *HTTPListener) handle(conn net.Conn, isTLS bool) {
-	defer func() {
-		log.Debug("End: Closing client connection")
-		conn.Close()
-	}()
-	log.Debug("Begin: New client connection", "tls", isTLS)
+	defer conn.Close()
 
 	var r *httpRoute
 
@@ -337,7 +397,21 @@ func (s *HTTPListener) handle(conn net.Conn, isTLS bool) {
 		}
 	}
 
+	// Check authentification
+	if r.auth != nil {
+		user, _ := r.auth.CheckAuth(req)
+		if user == "" {
+			r.auth.RequireAuth(NewResponseMaker(req, sc), req)
+			return
+		}
+	}
+
 	r.service.handle(req, sc, isTLS)
+}
+
+type Authenticator interface {
+	RequireAuth(w http.ResponseWriter, r *http.Request)
+	CheckAuth(r *http.Request) (username string, authinfo string)
 }
 
 // A domain served by a listener, associated TLS certs,
@@ -349,6 +423,7 @@ type httpRoute struct {
 	TLSKey  string
 
 	keypair *tls.Certificate
+	auth    Authenticator
 	service *httpService
 }
 
